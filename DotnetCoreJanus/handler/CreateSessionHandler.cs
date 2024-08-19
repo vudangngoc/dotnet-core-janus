@@ -5,10 +5,10 @@ namespace DotnetCoreJanus.Handler
 {
     public class CreateSessionHandler : IJanusHandler
     {
-        private JanusClient JanusClient;
-        public CreateSessionHandler(JanusClient janusClient)
+        private TaskCompletionSource<long> response;
+        public CreateSessionHandler(TaskCompletionSource<long> response)
         {
-            this.JanusClient = janusClient;
+            this.response = response;
         }
         public bool HandleMessage(JsonDocument doc)
         {
@@ -16,7 +16,7 @@ namespace DotnetCoreJanus.Handler
             {
                 if(doc.RootElement.TryGetProperty("data", out JsonElement data))
                 {
-                    JanusClient.Session = data.GetProperty("id").GetInt64();
+                    response.SetResult( data.GetProperty("id").GetInt64());
                 }
             } else if(doc.RootElement.TryGetProperty("janus", out janus) && janus.GetString() == "error")
             {

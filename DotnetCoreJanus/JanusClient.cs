@@ -5,18 +5,18 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using DotnetCoreJanus.Handler;
+using System.Text.Json.Nodes;
+using Microsoft.MixedReality.WebRTC;
 
 public class JanusClient
 {
     public string Server { get; set; }
-    public long Session { get; set; }
 
-    private ConcurrentDictionary<string, IJanusHandler> handlers = new ConcurrentDictionary<string, IJanusHandler>();
-    public ConcurrentDictionary<string, long> PluginHandleIds { get; set; } = new ConcurrentDictionary<string, long>();
+    private readonly ConcurrentDictionary<string, IJanusHandler> handlers = new();
+    private readonly ConcurrentDictionary<string, long> _sessions = new(); 
+    private readonly WebSocket ws;
 
-    private WebSocket ws;
-
-    private JsonSerializerOptions options = new JsonSerializerOptions 
+    private readonly JsonSerializerOptions options = new()
     {
         WriteIndented = true
     };
@@ -57,54 +57,123 @@ public class JanusClient
         ws.Close();
     }
 
-    public void SendMessage(string transaction, string message, IJanusHandler handler)
+    public void SendMessage(string userName, JsonObject doc, IJanusHandler handler)
     {
-        Console.WriteLine("Sending to server: " + message);
+        
         if(ws.ReadyState != WebSocketState.Open)
         {
             Console.WriteLine("WebSocket is not open");
             return;
         }
-        handlers.TryAdd(transaction, handler);
+        this._sessions.TryGetValue(userName, out long session_id);
+        doc.Add("session_id", session_id);
+        string transaction = Guid.NewGuid().ToString();
+        doc.Add("transaction", transaction);
+        string message = doc.ToJsonString();
+        
+        this.handlers.TryAdd(transaction, handler);
+        Console.WriteLine("Sending to server: " + message);
         ws.Send(message);
     }
 
     private void SendMessage(string message)
     {
-        Console.WriteLine("Sending to server: " + message);
+        
         if(ws.ReadyState != WebSocketState.Open)
         {
             Console.WriteLine("WebSocket is not open");
             return;
         }
+        Console.WriteLine("Sending to server: " + message);
         ws.Send(message);
     }
 
-    public void createSession()
+    public void CreateSession(string userName)
     {
         var message = new
         {
             janus = "create",
             transaction = Guid.NewGuid().ToString()
         };
-        handlers.TryAdd(message.transaction, new CreateSessionHandler(this));
+        var response = new TaskCompletionSource<long>();
+        handlers.TryAdd(message.transaction, new CreateSessionHandler(response));
         
         var json = JsonSerializer.Serialize(message, options);
         SendMessage(json);
+        this._sessions.TryAdd(userName, response.Task.Result);
     }
 
-    public void AttacthPlugin(string plugin)
+    public long AttacthPlugin(string userName, string plugin)
     {
-        
+        this._sessions.TryGetValue(userName, out long session_id);
         var message = new
         {
             janus = "attach",
             plugin = plugin,
             transaction = Guid.NewGuid().ToString(),
-            session_id = this.Session
+            session_id = session_id
         };
         var json = JsonSerializer.Serialize(message, options);
-        handlers.TryAdd(message.transaction, new AttachPluginHandler(this, plugin));
+        var response = new TaskCompletionSource<long>();
+        handlers.TryAdd(message.transaction, new AttachPluginHandler(plugin, response));
         SendMessage(json);
+        return response.Task.Result;
     }
+
+    public void Disconnect(string userName)
+    {
+        this._sessions.TryRemove(userName, out long _);
+    }
+
+    internal PeerConnection handleSdpOffer(string userName, long handle_id, string sdoOffer)
+    {
+        SdpMessage remoteSdp = new SdpMessage
+            {
+                Content = sdoOffer,
+                Type = SdpMessageType.Offer // or Answer depending on your role
+            };
+        var peerConnection = CreatePeerConnection();
+        peerConnection.SetRemoteDescriptionAsync(remoteSdp);
+        if( peerConnection.CreateAnswer()){
+            // var answer = await peerConnection.
+        }
+        return peerConnection;
+    }
+
+
+    private PeerConnection CreatePeerConnection()
+        {
+            var peerConnection = new PeerConnection();
+
+            // Initialize the PeerConnection with a configuration (optional)
+            var config = new PeerConnectionConfiguration
+            {
+                IceServers = new List<IceServer>
+                {
+                    new IceServer { Urls = new List<string> { "stun:stun.l.google.com:19302" } }
+                }
+            };
+
+            // Initialize the PeerConnection (this prepares the WebRTC stack)
+            peerConnection.InitializeAsync(config);
+
+            // Handle the connection state changes (optional)
+            peerConnection.Connected += () =>
+            {
+                Console.WriteLine("Peer connection established!");
+            };
+
+            // Handle ICE candidates being gathered (optional)
+            peerConnection.IceCandidateReadytoSend += (candidate) =>
+            {
+                Console.WriteLine($"New ICE candidate: {candidate}");
+            };
+
+            peerConnection.IceStateChanged += (state) =>
+            {
+                Console.WriteLine($"ICE state: {state}");
+            };
+
+            return peerConnection;
+        }
 }

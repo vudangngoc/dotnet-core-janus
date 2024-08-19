@@ -5,12 +5,12 @@ namespace DotnetCoreJanus.Handler
 {
     public class AttachPluginHandler : IJanusHandler
     {
-        private JanusClient JanusClient;
         private string pluginName;
-        public AttachPluginHandler(JanusClient janusClient, string pluginName)
+        private TaskCompletionSource<long> response;
+        public AttachPluginHandler(string pluginName, TaskCompletionSource<long> response)
         {
             this.pluginName = pluginName;
-            this.JanusClient = janusClient;
+            this.response = response;
         }
         public bool HandleMessage(JsonDocument doc)
         {
@@ -18,7 +18,7 @@ namespace DotnetCoreJanus.Handler
             {
                 if(doc.RootElement.TryGetProperty("data", out JsonElement data))
                 {
-                    JanusClient.PluginHandleIds.TryAdd(this.pluginName, data.GetProperty("id").GetInt64());
+                    response.SetResult( data.GetProperty("id").GetInt64());
                 }
             } else if(doc.RootElement.TryGetProperty("janus", out janus) && janus.GetString() == "error")
             {
