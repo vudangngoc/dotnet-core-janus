@@ -132,16 +132,38 @@ public class JanusClient
                 Content = sdoOffer,
                 Type = SdpMessageType.Offer // or Answer depending on your role
             };
-        var peerConnection = CreatePeerConnection();
+        var transaction = Guid.NewGuid().ToString();
+        var session_id = this._sessions[userName];
+        var peerConnection = CreatePeerConnection(handle_id, session_id);
         peerConnection.SetRemoteDescriptionAsync(remoteSdp);
-        if( peerConnection.CreateAnswer()){
-            // var answer = await peerConnection.
-        }
+        
+        peerConnection.LocalSdpReadytoSend += (sdp) =>
+        {
+            var message = new
+            {
+                janus = "message",
+                body = new
+                {
+                    request = "ack"
+                },
+                jsep = new
+                {
+                    type = "answer",
+                    sdp = sdp.Content
+                },
+                transaction = transaction,
+                session_id = session_id,
+                handle_id = handle_id
+            };
+            var json = JsonSerializer.Serialize(message, options);
+            SendMessage(json);
+        };
+        peerConnection.CreateAnswer();
         return peerConnection;
     }
 
 
-    private PeerConnection CreatePeerConnection()
+    private PeerConnection CreatePeerConnection(long handle_id, long session_id)
         {
             var peerConnection = new PeerConnection();
 
@@ -161,18 +183,94 @@ public class JanusClient
             peerConnection.Connected += () =>
             {
                 Console.WriteLine("Peer connection established!");
+                peerConnection.AddDataChannelAsync("chat", true, true).ContinueWith(task =>
+                    {
+                        if (task.IsCompletedSuccessfully)
+                        {
+                            Console.WriteLine("Data channel added successfully");
+                            task.Result.MessageReceived += (data) =>
+                            {
+                                Console.WriteLine("Data channel message received: " + data);
+                            };
+                            
+                            // task.Result.StateChanged += (state) =>
+                            // {
+                            //     Console.WriteLine("Data channel state: " + state);
+                            // };
+
+                        }
+                        else
+                        {
+                            Console.WriteLine("Failed to add data channel");
+                        }
+                    });
             };
 
             // Handle ICE candidates being gathered (optional)
             peerConnection.IceCandidateReadytoSend += (candidate) =>
             {
-                Console.WriteLine($"New ICE candidate: {candidate}");
+                var message = new
+                {
+                    janus = "trickle",
+                    candidate = new
+                    {
+                        candidate = candidate.Content,
+                        sdpMid = candidate.SdpMid,
+                        sdpMLineIndex = candidate.SdpMlineIndex
+                    },
+                    transaction = Guid.NewGuid().ToString(),
+                    session_id = session_id,
+                    handle_id = handle_id
+                };
+                var json = JsonSerializer.Serialize(message, options);
+                SendMessage(json);
             };
 
             peerConnection.IceStateChanged += (state) =>
             {
-                Console.WriteLine($"ICE state: {state}");
+                switch (state)
+                {
+                    case IceConnectionState.Connected:
+                        Console.WriteLine("ICE state: Connected");
+                        break;
+                    case IceConnectionState.Disconnected:
+                        Console.WriteLine("ICE state: Disconnected");
+                        break;
+                    case IceConnectionState.Failed:
+                        Console.WriteLine("ICE state: Failed");
+                        break;
+                    case IceConnectionState.Closed:
+                        Console.WriteLine("ICE state: Closed");
+                        break;
+                    case IceConnectionState.New:
+                        Console.WriteLine("ICE state: New");
+                        break;
+                    case IceConnectionState.Checking:
+                        Console.WriteLine("ICE state: Checking");
+                        break;
+                    case IceConnectionState.Completed:
+                        Console.WriteLine("ICE state: Completed");
+                        var message = new
+                        {
+                            janus = "trickle",
+                            candidate = new
+                            {
+                                completed = "true"
+                            },
+                            transaction = Guid.NewGuid().ToString(),
+                            session_id = session_id,
+                            handle_id = handle_id
+                        };
+                        var json = JsonSerializer.Serialize(message, options);
+                        SendMessage(json);
+                        break;
+                    default:
+                        Console.WriteLine("ICE state: Unknown");
+                        break;
+                }
             };
+
+            
 
             return peerConnection;
         }
