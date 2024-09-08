@@ -5,14 +5,13 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Collections.Concurrent;
 using DotnetCoreJanus.Handler;
+using System.Text.Json.Nodes;
 
 public class JanusClient
 {
     public string Server { get; set; }
-    public long Session { get; set; }
 
     private ConcurrentDictionary<string, IJanusHandler> handlers = new ConcurrentDictionary<string, IJanusHandler>();
-    public ConcurrentDictionary<string, long> PluginHandleIds { get; set; } = new ConcurrentDictionary<string, long>();
 
     private WebSocket ws;
 
@@ -57,7 +56,7 @@ public class JanusClient
         ws.Close();
     }
 
-    public void SendMessage(string transaction, string message, IJanusHandler handler)
+    public void SendMessage(string transaction, JsonObject message, IJanusHandler handler)
     {
         Console.WriteLine("Sending to server: " + message);
         if(ws.ReadyState != WebSocketState.Open)
@@ -66,7 +65,7 @@ public class JanusClient
             return;
         }
         handlers.TryAdd(transaction, handler);
-        ws.Send(message);
+        ws.Send(message.ToString());
     }
 
     private void SendMessage(string message)
@@ -80,31 +79,34 @@ public class JanusClient
         ws.Send(message);
     }
 
-    public void createSession()
+    public long CreateSession()
     {
         var message = new
         {
             janus = "create",
             transaction = Guid.NewGuid().ToString()
         };
-        handlers.TryAdd(message.transaction, new CreateSessionHandler(this));
+        TaskCompletionSource<long> result = new TaskCompletionSource<long>();
+        handlers.TryAdd(message.transaction, new CreateSessionHandler(result));
         
         var json = JsonSerializer.Serialize(message, options);
         SendMessage(json);
+        return result.Task.Result;
     }
 
-    public void AttacthPlugin(string plugin)
+    public long AttacthPlugin(long sessionId, string plugin)
     {
-        
         var message = new
         {
             janus = "attach",
             plugin = plugin,
             transaction = Guid.NewGuid().ToString(),
-            session_id = this.Session
+            session_id = sessionId
         };
         var json = JsonSerializer.Serialize(message, options);
-        handlers.TryAdd(message.transaction, new AttachPluginHandler(this, plugin));
+        TaskCompletionSource<long> result = new();
+        handlers.TryAdd(message.transaction, new AttachPluginHandler(result));
         SendMessage(json);
+        return result.Task.Result;
     }
 }

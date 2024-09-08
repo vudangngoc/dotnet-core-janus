@@ -7,12 +7,17 @@ public class TestJanusClient
     [Fact]
     public void TestAttachPlugin()
     {
-        JanusClient janusClient = new JanusClient("wss://janus.conf.meetecho.com/ws");
+        JanusClient janusClient = new JanusClient("ws://159.65.129.9:8188/ws");
         Thread.Sleep(1000);
-        janusClient.createSession();
-        Thread.Sleep(1000);
-        janusClient.AttacthPlugin("janus.plugin.textroom");
-        Thread.Sleep(1000);
-        Assert.True(janusClient.PluginHandleIds.TryGetValue("janus.plugin.textroom", out long handleId));
+        long sessionId = janusClient.CreateSession();
+        long handleId = janusClient.AttacthPlugin(sessionId, "janus.plugin.textroom");
+        TextRoomPlugin textRoomPlugin = new TextRoomPlugin(janusClient);
+        Assert.True(handleId > 0);
+        var rooms = textRoomPlugin.GetRooms(sessionId, handleId);
+        Assert.True(rooms.Count > 0);
+        string sdpOffer = textRoomPlugin.SetupPeerConnection(sessionId, handleId);
+        Assert.False(sdpOffer.Equals(""));
+        string sendAnswerOutput = textRoomPlugin.SendSdpAnswer(sessionId, handleId, "");
+        Assert.False(sendAnswerOutput.Equals("error"));
     }
 }
