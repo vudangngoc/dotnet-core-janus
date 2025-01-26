@@ -15,7 +15,7 @@ public class TestJanusClient
                                 .BuildServiceProvider();
 
         var logger = serviceProvider.GetService<ILogger<JanusClient>>();
-        JanusClient janusClient = new JanusClient("ws://143.198.212.46:8188/ws", logger);
+        JanusClient janusClient = new JanusClient("ws://localhost:8188/ws", logger);
         Thread.Sleep(1000);
         long sessionId = janusClient.CreateSession();
         long handleId = janusClient.AttacthPlugin(sessionId, "janus.plugin.textroom");
